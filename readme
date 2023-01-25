@@ -1,0 +1,16 @@
+Smooth Subsum Search: Fast integer factorization in Python
+
+Smooth Subsum Search (SSS) is a new algorithm for collecting so-called smooth values of integer polynomials.
+Finding such values is an important part of the currently best integer factorization algorithms, 
+such as the Quadratic Sieve and the General Number Field Sieve. The current implementation of SSS can be used
+for factoring small to medium-sized numbers (30-70 decimal digits) in Python. 
+
+This repository contains the source code of the algorithms SSS and SSSf as described in Section 3 of the paper 
+"Smooth Subsum Search: A Heuristic for Practical Integer Factorization". In addition, two Python scripts for 
+the Self-initializing Quadratic Sieve from other packages are included:
+
+1) psiqs.py contains the implementations of the primefac-package (https://pypi.org/project/primefac/)
+2) ssiqs.py contains the implementations of the sympy-package (https://fossies.org/linux/sympy/sympy/ntheory/qs.py)
+
+The file test.py has been used for comparing these approaches and obtaining the results presented in 
+Section 4 of the paper. 
