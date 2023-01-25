@@ -1,5 +1,3 @@
-Smooth Subsum Search: Fast integer factorization in Python
-
 Smooth Subsum Search (SSS) is a new algorithm for collecting so-called smooth values of integer polynomials.
 Finding such values is an important part of the currently best integer factorization algorithms, 
 such as the Quadratic Sieve and the General Number Field Sieve. The current implementation of SSS can be used
