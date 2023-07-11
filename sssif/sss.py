@@ -2,12 +2,11 @@
 'Smooth Subsum Search: A Heuristic for Practical Integer Factorization'"""
 
 import sys
-import gmpy2
 import time as tm
-from itertools import combinations
+from collections import Counter
 from SSSIF.mstep import matrix_factor
-from math import prod, ceil, log, gcd
 from random import seed, choices, randint
+from math import prod, ceil, log, gcd, sqrt
 from sympy import sieve, isprime
 from sympy.ntheory.residue_ntheory import legendre_symbol, sqrt_mod
 
@@ -23,19 +22,15 @@ def SSS(N):
 
     def precomp():
 
-        roots=[[] for _ in range(len(plist))]
-        for i in range(len(plist)):
-              p = plist[i]
+        roots=[[] for _ in range(len(fbase))]
+        for i in range(len(fbase)):
+              p = fbase[i]
               roots[i].extend([(root-b) % p
                     for root in sqrt_mod(a*N, p, all_roots=True)])
-              roots[i] = list(dict.fromkeys(roots[i]))
-              roots[i].append(-1)
               roots[i].sort()
         
-        difflist = [0]*len(roots)
-        for i in range(len(plist)):
-            if plist[i] != 2:
-                difflist[i]=coeffs[i]*(roots[i][2]-roots[i][1]) 
+        difflist=[coeffs[i]*(roots[i][1]-roots[i][0]) if i>0 else 0 
+                 for i in range(len(plist))]
         
         return roots, difflist
     
@@ -72,40 +67,55 @@ def SSS(N):
                 x_smooth.append(xlist[i])
             else:
                 n_smooth = val_list[i] // gcd(val_list[i], y)
-                if n_smooth < 128*fbase[-1]:
-                    smooth_parts.append([n_smooth, xlist[i]])
+                if n_smooth < partialbound:
+                    if n_smooth <= last: x_smooth.append(xlist[i])
+                    else: smooth_parts.append([n_smooth, xlist[i]])
          
         return x_smooth, smooth_parts
     
        
-    def search(output, partial, roots, difflist, length):
+    def search(output, partial, length):
         
-        indlist=set(choices(range(len(plist)), k=length))
-        pa,tr = list(combinations(indlist, 2)),list(combinations(indlist, 3))
-        itup=[[]] + [[i] for i in indlist] + pa + tr
+        indset = set(choices(range(len(plist)), k=length))
+        primes = [1] + [plist[i] for i in indset]
+        indlist = [-1] + [i for i in indset]
         
-        M = prod([plist[i] for i in indlist])
-        mvals = [M] + [M//plist[i] for i in indlist] 
-        mvals += [M//(plist[p[0]]*plist[p[1]]) for p in pa] 
-        mvals += [M//(plist[t[0]]*plist[t[1]]*plist[t[2]]) for t in tr]
+        M = prod(primes)
+        mvals = [M//p for p in primes] 
+        xval = sum(coeffs[i]*roots[i][0] for i in indset) % M
+        inv = [pow(M,-1,fbase[i]) if i>=len(plist) else 0 
+               for i in range(len(fbase))]
         
-        xval = sum(coeffs[i]*roots[i][1] for i in indlist) % M
-        
-        for i in indlist:
-            if plist[i]==2: continue
-            xval = (xval+difflist[i]) % M   
+        for i in indset:
+            if i==0: continue
+            xval = (xval+difflist[i]) % M  
+            
+            bvals, kvals = [0]*len(fbase), []
+            for v in range(len(plist),len(fbase)):
+                p, r = fbase[v], roots[v]
+                b0 = (r[0] - xval)*inv[v] % p
+                b1 = (r[1] - xval)*inv[v] % p
+                bvals[v] = [b0, b1]
+                kvals.extend([b0-p, b0, b1-p, b1])
              
-            xlist,val_list = [],[]
+            xlist, val_list = [], []
             for j in range(len(mvals)):
-                if i in itup[j]: continue
-                m = mvals[j]
-                xv = xval % m
-                if 2*xv < m: 
-                    xlist.append(xv)
-                    val_list.append(abs(pol(xv))//m)
-                else: 
-                    xlist.append(xv-m)
-                    val_list.append(abs(pol(xv-m))//m)    
+                if indlist[j]==i: continue
+                m, pri = mvals[j], primes[j]
+                
+                if j>0:
+                    kvals=[]
+                    for v in range(len(plist), len(fbase)):
+                        p, b = fbase[v], bvals[v]
+                        r0 = b[0]*pri % p
+                        r1 = b[1]*pri % p
+                        kvals.extend([r0-p, r0, r1-p, r1])
+                            
+                for k,v in Counter(kvals).items():
+                    if v>2:
+                        arg=xval+k*m
+                        xlist.append(arg)
+                        val_list.append(abs(pol(arg))//m)
         
             x_smooth, smooth_parts = smooth_batch(xlist, val_list)
             partial.extend(smooth_parts)
@@ -121,7 +131,7 @@ def SSS(N):
         
     if N < 2: sys.exit("N must be greater than 1")
     for r in range(2, N.bit_length()+1):
-        x = round(log(N,r),5)
+        x = round(log(N,r), 10)
         if x == round(x): sys.exit("N is power of "+str(r))
         
     dig = len(str(N))  
@@ -138,11 +148,14 @@ def SSS(N):
     elif dig <= 56: m = 4000
     elif dig <= 60: m = 8000
     elif dig <= 66: m = 12000
-    elif dig <= 70: m = 20000
-    else:           m = 60000
+    elif dig <= 74: m = 20000   
+    elif dig <= 80: m = 60000
+    elif dig <= 88: m = 100000
+    elif dig <= 94: m = 120000
+    else:           m = 200000
      
     a=1
-    b=int(ceil(gmpy2.sqrt(a*N)))
+    b=ceil(sqrt(a*N))
     
     """Computing factor base"""
     sieve._reset()
@@ -156,10 +169,14 @@ def SSS(N):
         if legendre_symbol(a*N,fbase[i])!=1: np_ind.append(i)    
     fbase=[fbase[i] for i in range(len(fbase)) if i not in np_ind]
     plist=[plist[i] for i in range(len(plist)) if i not in np_ind]    
+    last = fbase[-1]
+        
     m_tree=products(fbase)
     n_tree=products(plist)
     mval = m_tree[-1][0]
     nval = n_tree[-1][0]
+    
+    partialbound=128*last
     
     """Raising exponents in mval for powersmooth test"""
     for p in fbase: mval = mval * (p**(max(1,int(log(2**15,p)))-1))  
@@ -170,7 +187,7 @@ def SSS(N):
     
     roots, difflist = precomp()
     print("N:", str(N)+" ("+str(len(str(N)))+" digits)")
-    print("# Primes in FB: "+str(len(fbase)))
+    print("Primes in Factorbase: "+str(len(fbase)))
     print(" ")
     print("------------")
     print(" ")
@@ -186,29 +203,28 @@ def SSS(N):
     output = set()
     for run in range(10**100):
             
-        search(output, partial, roots, difflist, 8)
-        pr=len(output)
+        search(output, partial, 6)
         
-        if run % 50 == 0:
-            """Updating partial relations"""
-            for pa in partial:
-                l_p=[lst[0] for lst in lp_lst]
-                if pa[0] in l_p:
-                    plst=lp_lst[l_p.index(pa[0])]
-                    if pa[1] not in plst: plst.append(pa[1])
-                else:
-                    lp_lst.append(pa) 
-            partial=[]
-            """Keeping track of number of suitable partial relations"""
-            lp=0
-            for tupl in [lst for lst in lp_lst if len(lst)>2]:
-                lp += (len(tupl)-1)//2
-                 
-            t=round(tm.time()-start,2)
-            frac=(pr+lp+1)/(len(fbase)+10)
-            print('\b'*512 +"Relations: "+str(pr+lp)+"/"+str(len(fbase)+10)+
-                  " ("+str("%0.2f" % min(100,round(frac*100,2)))+"%)"      
-            +", running for "+str("%0.2f" % t)+"s   ", end='', flush=True)
+        """Updating partial relations"""
+        for pa in partial:
+            l_p=[lst[0] for lst in lp_lst]
+            if pa[0] in l_p:
+                plst=lp_lst[l_p.index(pa[0])]
+                if pa[1] not in plst: plst.append(pa[1])
+            else:
+                lp_lst.append(pa) 
+        partial=[]
+        """Keeping track of number of suitable partial relations"""
+        lp=0
+        for tupl in [lst for lst in lp_lst if len(lst)>2]:
+            lp += (len(tupl)-1)//2
+        
+        pr=len(output)
+        t=round(tm.time()-start,2)
+        frac=(pr+lp+1)/(len(fbase)+10)
+        print('\b'*512 +"Relations: "+str(pr+lp)+"/"+str(len(fbase)+10)+
+              " ("+str("%0.2f" % min(100,round(frac*100,2)))+"%)"      
+        +", running for "+str("%0.0f" % t)+"s   ", end='', flush=True)
          
         if pr + lp >= len(fbase) + 10: break
         

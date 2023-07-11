@@ -4,7 +4,7 @@ of 'Smooth Subsum Search: A Heuristic for Practical Integer Factorization'"""
 import sys
 import gmpy2
 import time as tm
-from itertools import combinations
+from collections import Counter
 from SSSIF.mstep import matrix_factor
 from math import prod, ceil, log, gcd
 from random import seed, choices, randint
@@ -25,19 +25,15 @@ def SSS(N, prop, digred):
 
     def precomp():
 
-        roots=[[] for _ in range(len(plist))]
-        for i in range(len(plist)):
-              p = plist[i]
+        roots=[[] for _ in range(len(fbase))]
+        for i in range(len(fbase)):
+              p = fbase[i]
               roots[i].extend([(root-b) % p
                     for root in sqrt_mod(a*N, p, all_roots=True)])
-              roots[i] = list(dict.fromkeys(roots[i]))
-              roots[i].append(-1)
               roots[i].sort()
         
-        difflist = [0]*len(roots)
-        for i in range(len(plist)):
-            if plist[i] != 2:
-                difflist[i]=coeffs[i]*(roots[i][2]-roots[i][1]) 
+        difflist=[coeffs[i]*(roots[i][1]-roots[i][0]) if i>0 else 0 
+                 for i in range(len(plist))]
         
         return roots, difflist
     
@@ -74,9 +70,10 @@ def SSS(N, prop, digred):
                 x_smooth.append(xlist[i])
             else:
                 n_smooth = val_list[i] // gcd(val_list[i], y)
-                if n_smooth < 128*fbase[-1]:
-                    smooth_parts.append([n_smooth, xlist[i]])
-                elif n_smooth < 10**(dig//2-digred): 
+                if n_smooth < filterbound:
+                    if n_smooth <= last: 
+                        smooth_parts.append([n_smooth, xlist[i]])
+                    else: 
                         filter_x.append(xlist[i])
                         filter_v.append(n_smooth)
          
@@ -86,47 +83,62 @@ def SSS(N, prop, digred):
     def smooth_batch(xlist, val_list, zval):
 
         rem_list = remainders(zval, val_list)
-        x_smooth, smooth_parts, = [], []
+        x_smooth, smooth_parts = [], []
         for i in range(len(rem_list)):
             y=rem_list[i]
             if y==0:
                 x_smooth.append(xlist[i])
             else:
                 n_smooth = val_list[i] // gcd(val_list[i], y)
-                if n_smooth < 128*fbase[-1]:
-                    smooth_parts.append([n_smooth, xlist[i]])
+                if n_smooth < partialbound:
+                    if n_smooth <= last: x_smooth.append(xlist[i])
+                    else: smooth_parts.append([n_smooth, xlist[i]])
          
         return x_smooth, smooth_parts
     
        
-    def search(output, partial, roots, difflist, length):
+    def search(output, partial, length):
         
-        indlist=set(choices(range(len(plist)), k=length))
-        pa,tr = list(combinations(indlist, 2)),list(combinations(indlist, 3))
-        itup=[[]] + [[i] for i in indlist] + pa + tr
+        indset = set(choices(range(len(plist)), k=length))
+        primes = [1] + [plist[i] for i in indset]
+        indlist = [-1] + [i for i in indset]
         
-        M = prod([plist[i] for i in indlist])
-        mvals = [M] + [M//plist[i] for i in indlist] 
-        mvals += [M//(plist[p[0]]*plist[p[1]]) for p in pa] 
-        mvals += [M//(plist[t[0]]*plist[t[1]]*plist[t[2]]) for t in tr]
+        M = prod(primes)
+        mvals = [M//p for p in primes] 
+        xval = sum(coeffs[i]*roots[i][0] for i in indset) % M
+        inv = [pow(M,-1,fbase[i]) if i>=len(plist) else 0 
+               for i in range(len(fbase))]
         
-        xval = sum(coeffs[i]*roots[i][1] for i in indlist) % M
-        
-        for i in indlist:
-            if plist[i]==2: continue
-            xval = (xval+difflist[i]) % M   
+        for i in indset:
+            if i==0: continue
+            xval = (xval+difflist[i]) % M  
+            
+            bvals, kvals = [0]*len(fbase), []
+            for v in range(len(plist),len(fbase)):
+                p, r = fbase[v], roots[v]
+                b0 = (r[0] - xval)*inv[v] % p
+                b1 = (r[1] - xval)*inv[v] % p
+                bvals[v] = [b0, b1]
+                kvals.extend([b0-p, b0, b1-p, b1])
              
-            xlist,val_list = [],[]
+            xlist, val_list = [], []
             for j in range(len(mvals)):
-                if i in itup[j]: continue
-                m = mvals[j]
-                xv = xval % m
-                if 2*xv < m: 
-                    xlist.append(xv)
-                    val_list.append(abs(pol(xv))//m)
-                else: 
-                    xlist.append(xv-m)
-                    val_list.append(abs(pol(xv-m))//m)    
+                if indlist[j]==i: continue
+                m, pri = mvals[j], primes[j]
+                
+                if j>0:
+                    kvals=[]
+                    for v in range(len(plist), len(fbase)):
+                        p, b = fbase[v], bvals[v]
+                        r0 = b[0]*pri % p
+                        r1 = b[1]*pri % p
+                        kvals.extend([r0-p, r0, r1-p, r1])
+                            
+                for k,v in Counter(kvals).items():
+                    if v>2:
+                        arg=xval+k*m
+                        xlist.append(arg)
+                        val_list.append(abs(pol(arg))//m)
         
             sm, smp, fx, fv = smooth_filter(xlist, val_list, mval)
             res = smooth_batch(fx, fv, lval)
@@ -146,7 +158,7 @@ def SSS(N, prop, digred):
         
     if N < 2: sys.exit("N must be greater than 1")
     for r in range(2, N.bit_length()+1):
-        x = round(log(N,r),5)
+        x = round(log(N,r),10)
         if x == round(x): sys.exit("N is power of "+str(r))
         
     dig = len(str(N))  
@@ -164,7 +176,11 @@ def SSS(N, prop, digred):
     elif dig <= 60: m = 8000
     elif dig <= 66: m = 12000
     elif dig <= 70: m = 20000
-    else:           m = 60000
+    elif dig <= 74: m = 20000   
+    elif dig <= 80: m = 60000
+    elif dig <= 88: m = 100000
+    elif dig <= 94: m = 120000
+    else:           m = 200000
      
     a=1
     b=int(ceil(gmpy2.sqrt(a*N)))
@@ -181,6 +197,7 @@ def SSS(N, prop, digred):
         if legendre_symbol(a*N,fbase[i])!=1: np_ind.append(i)    
     fbase=[fbase[i] for i in range(len(fbase)) if i not in np_ind]
     plist=[plist[i] for i in range(len(plist)) if i not in np_ind]   
+    last = fbase[-1]
     
     m_tree=products(fbase[:len(fbase)//prop])
     l_tree=products(fbase[len(fbase)//prop:])
@@ -188,6 +205,9 @@ def SSS(N, prop, digred):
     mval = m_tree[-1][0]
     lval = l_tree[-1][0]
     nval = n_tree[-1][0]
+    
+    partialbound = 128*last
+    filterbound = 10**(dig//2-digred)
     
     """Raising exponents in zvals for powersmooth test"""
     for p in fbase[:len(fbase)//prop]: 
@@ -217,29 +237,28 @@ def SSS(N, prop, digred):
     output = set()
     for run in range(10**100):
             
-        search(output, partial, roots, difflist, 8)
+        search(output, partial, 7)
         pr=len(output)
         
-        if run % 50 == 0:
-            """Updating partial relations"""
-            for pa in partial:
-                l_p=[lst[0] for lst in lp_lst]
-                if pa[0] in l_p:
-                    plst=lp_lst[l_p.index(pa[0])]
-                    if pa[1] not in plst: plst.append(pa[1])
-                else:
-                    lp_lst.append(pa) 
-            partial=[]
-            """Keeping track of number of suitable partial relations"""
-            lp=0
-            for tupl in [lst for lst in lp_lst if len(lst)>2]:
-                lp += (len(tupl)-1)//2
+        """Updating partial relations"""
+        for pa in partial:
+            l_p=[lst[0] for lst in lp_lst]
+            if pa[0] in l_p:
+                plst=lp_lst[l_p.index(pa[0])]
+                if pa[1] not in plst: plst.append(pa[1])
+            else:
+                lp_lst.append(pa) 
+        partial=[]
+        """Keeping track of number of suitable partial relations"""
+        lp=0
+        for tupl in [lst for lst in lp_lst if len(lst)>2]:
+            lp += (len(tupl)-1)//2
                  
-            t=round(tm.time()-start,2)
-            frac=(pr+lp+1)/(len(fbase)+10)
-            print('\b'*512 +"Relations: "+str(pr+lp)+"/"+str(len(fbase)+10)+
-                  " ("+str("%0.2f" % min(100,round(frac*100,2)))+"%)"      
-            +", running for "+str("%0.2f" % t)+"s   ", end='', flush=True)
+        t=round(tm.time()-start,2)
+        frac=(pr+lp+1)/(len(fbase)+10)
+        print('\b'*512 +"Relations: "+str(pr+lp)+"/"+str(len(fbase)+10)+
+              " ("+str("%0.2f" % min(100,round(frac*100,2)))+"%)"      
+        +", running for "+str("%0.0f" % t)+"s   ", end='', flush=True)
          
         if pr + lp >= len(fbase) + 10: break
         
@@ -279,7 +298,7 @@ def SSS(N, prop, digred):
 if __name__ == "__main__":
     
     seed(1)
-    digits=70
+    digits=75
     while True:
         
         if digits % 2 == 1:
@@ -297,10 +316,7 @@ if __name__ == "__main__":
         dig = len(str(N))   
         if dig==digits: break
     
-    #60dig: rho=20, delta=8
-    #65dig: rho=22, delta=9
-    #70dig: rho=25, delta=10
-    SSS(N, 25, 10)
+    SSS(N, 10, 5)
 
 
 
