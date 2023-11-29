@@ -5,7 +5,7 @@ import sys
 import gmpy2
 import time as tm
 from collections import Counter
-from SSSIF.mstep import matrix_factor
+from mstep import matrix_factor
 from math import prod, ceil, log, gcd
 from random import seed, choices, randint
 from sympy import sieve, isprime
