@@ -4,7 +4,7 @@
 import sys
 import time as tm
 from collections import Counter
-from SSSIF.mstep import matrix_factor
+from mstep import matrix_factor
 from random import seed, choices, randint
 from math import prod, ceil, log, gcd, sqrt
 from sympy import sieve, isprime
