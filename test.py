@@ -1,3 +1,6 @@
+import sys
+sys.path.append("./sssif")
+
 import os
 import time as tm
 
